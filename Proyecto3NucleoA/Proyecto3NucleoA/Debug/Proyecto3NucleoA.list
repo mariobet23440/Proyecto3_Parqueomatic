@@ -21,9 +21,9 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, ALLOC, LOAD, READONLY, DATA
   8 .data         0000000c  20000000  08006648  00008000  2**2
                   CONTENTS, ALLOC, LOAD, DATA
-  9 .bss          00000218  2000000c  08006654  0000800c  2**2
+  9 .bss          00000214  2000000c  08006654  0000800c  2**2
                   ALLOC
- 10 ._user_heap_stack 00000604  20000224  08006654  00008224  2**0
+ 10 ._user_heap_stack 00000600  20000220  08006654  00008220  2**0
                   ALLOC
  11 .ARM.attributes 00000030  00000000  00000000  0000800c  2**0
                   CONTENTS, READONLY
@@ -761,7 +761,7 @@ int main(void)
  80007b4:	20000218 	.word	0x20000218
  80007b8:	20000028 	.word	0x20000028
  80007bc:	20000214 	.word	0x20000214
- 80007c0:	2000021c 	.word	0x2000021c
+ 80007c0:	20000215 	.word	0x20000215
  80007c4:	200000d0 	.word	0x200000d0
  80007c8:	080065b4 	.word	0x080065b4
  80007cc:	080065bc 	.word	0x080065bc
@@ -1623,7 +1623,7 @@ void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {
  8000cc8:	f85d 7b04 	ldr.w	r7, [sp], #4
  8000ccc:	4770      	bx	lr
  8000cce:	bf00      	nop
- 8000cd0:	2000021c 	.word	0x2000021c
+ 8000cd0:	20000215 	.word	0x20000215
 
 08000cd4 <HAL_I2C_ErrorCallback>:
 
@@ -1643,7 +1643,7 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
  8000ce8:	f85d 7b04 	ldr.w	r7, [sp], #4
  8000cec:	4770      	bx	lr
  8000cee:	bf00      	nop
- 8000cf0:	2000021c 	.word	0x2000021c
+ 8000cf0:	20000215 	.word	0x20000215
 
 08000cf4 <Error_Handler>:
 /**
@@ -1934,7 +1934,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
  8000e8e:	681b      	ldr	r3, [r3, #0]
  8000e90:	4a21      	ldr	r2, [pc, #132]	@ (8000f18 <HAL_I2C_MspInit+0xa4>)
  8000e92:	4293      	cmp	r3, r2
- 8000e94:	d13b      	bne.n	8000f0e <HAL_I2C_MspInit+0x9a>
+ 8000e94:	d13c      	bne.n	8000f10 <HAL_I2C_MspInit+0x9c>
   {
     /* USER CODE BEGIN I2C1_MspInit 0 */
 
@@ -1954,72 +1954,71 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
  8000eae:	613b      	str	r3, [r7, #16]
  8000eb0:	693b      	ldr	r3, [r7, #16]
     /**I2C1 GPIO Configuration
-    PB6     ------> I2C1_SCL
-    PB7     ------> I2C1_SDA
+    PB8     ------> I2C1_SCL
+    PB9     ------> I2C1_SDA
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
- 8000eb2:	23c0      	movs	r3, #192	@ 0xc0
- 8000eb4:	617b      	str	r3, [r7, #20]
+    GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
+ 8000eb2:	f44f 7340 	mov.w	r3, #768	@ 0x300
+ 8000eb6:	617b      	str	r3, [r7, #20]
     GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
- 8000eb6:	2312      	movs	r3, #18
- 8000eb8:	61bb      	str	r3, [r7, #24]
+ 8000eb8:	2312      	movs	r3, #18
+ 8000eba:	61bb      	str	r3, [r7, #24]
     GPIO_InitStruct.Pull = GPIO_NOPULL;
- 8000eba:	2300      	movs	r3, #0
- 8000ebc:	61fb      	str	r3, [r7, #28]
+ 8000ebc:	2300      	movs	r3, #0
+ 8000ebe:	61fb      	str	r3, [r7, #28]
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
- 8000ebe:	2303      	movs	r3, #3
- 8000ec0:	623b      	str	r3, [r7, #32]
+ 8000ec0:	2303      	movs	r3, #3
+ 8000ec2:	623b      	str	r3, [r7, #32]
     GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
- 8000ec2:	2304      	movs	r3, #4
- 8000ec4:	627b      	str	r3, [r7, #36]	@ 0x24
+ 8000ec4:	2304      	movs	r3, #4
+ 8000ec6:	627b      	str	r3, [r7, #36]	@ 0x24
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
- 8000ec6:	f107 0314 	add.w	r3, r7, #20
- 8000eca:	4619      	mov	r1, r3
- 8000ecc:	4814      	ldr	r0, [pc, #80]	@ (8000f20 <HAL_I2C_MspInit+0xac>)
- 8000ece:	f001 fb0d 	bl	80024ec <HAL_GPIO_Init>
+ 8000ec8:	f107 0314 	add.w	r3, r7, #20
+ 8000ecc:	4619      	mov	r1, r3
+ 8000ece:	4814      	ldr	r0, [pc, #80]	@ (8000f20 <HAL_I2C_MspInit+0xac>)
+ 8000ed0:	f001 fb0c 	bl	80024ec <HAL_GPIO_Init>
 
     /* Peripheral clock enable */
     __HAL_RCC_I2C1_CLK_ENABLE();
- 8000ed2:	2300      	movs	r3, #0
- 8000ed4:	60fb      	str	r3, [r7, #12]
- 8000ed6:	4b11      	ldr	r3, [pc, #68]	@ (8000f1c <HAL_I2C_MspInit+0xa8>)
- 8000ed8:	6c1b      	ldr	r3, [r3, #64]	@ 0x40
- 8000eda:	4a10      	ldr	r2, [pc, #64]	@ (8000f1c <HAL_I2C_MspInit+0xa8>)
- 8000edc:	f443 1300 	orr.w	r3, r3, #2097152	@ 0x200000
- 8000ee0:	6413      	str	r3, [r2, #64]	@ 0x40
- 8000ee2:	4b0e      	ldr	r3, [pc, #56]	@ (8000f1c <HAL_I2C_MspInit+0xa8>)
- 8000ee4:	6c1b      	ldr	r3, [r3, #64]	@ 0x40
- 8000ee6:	f403 1300 	and.w	r3, r3, #2097152	@ 0x200000
- 8000eea:	60fb      	str	r3, [r7, #12]
- 8000eec:	68fb      	ldr	r3, [r7, #12]
+ 8000ed4:	2300      	movs	r3, #0
+ 8000ed6:	60fb      	str	r3, [r7, #12]
+ 8000ed8:	4b10      	ldr	r3, [pc, #64]	@ (8000f1c <HAL_I2C_MspInit+0xa8>)
+ 8000eda:	6c1b      	ldr	r3, [r3, #64]	@ 0x40
+ 8000edc:	4a0f      	ldr	r2, [pc, #60]	@ (8000f1c <HAL_I2C_MspInit+0xa8>)
+ 8000ede:	f443 1300 	orr.w	r3, r3, #2097152	@ 0x200000
+ 8000ee2:	6413      	str	r3, [r2, #64]	@ 0x40
+ 8000ee4:	4b0d      	ldr	r3, [pc, #52]	@ (8000f1c <HAL_I2C_MspInit+0xa8>)
+ 8000ee6:	6c1b      	ldr	r3, [r3, #64]	@ 0x40
+ 8000ee8:	f403 1300 	and.w	r3, r3, #2097152	@ 0x200000
+ 8000eec:	60fb      	str	r3, [r7, #12]
+ 8000eee:	68fb      	ldr	r3, [r7, #12]
     /* I2C1 interrupt Init */
     HAL_NVIC_SetPriority(I2C1_EV_IRQn, 0, 0);
- 8000eee:	2200      	movs	r2, #0
- 8000ef0:	2100      	movs	r1, #0
- 8000ef2:	201f      	movs	r0, #31
- 8000ef4:	f000 ff23 	bl	8001d3e <HAL_NVIC_SetPriority>
+ 8000ef0:	2200      	movs	r2, #0
+ 8000ef2:	2100      	movs	r1, #0
+ 8000ef4:	201f      	movs	r0, #31
+ 8000ef6:	f000 ff22 	bl	8001d3e <HAL_NVIC_SetPriority>
     HAL_NVIC_EnableIRQ(I2C1_EV_IRQn);
- 8000ef8:	201f      	movs	r0, #31
- 8000efa:	f000 ff3c 	bl	8001d76 <HAL_NVIC_EnableIRQ>
+ 8000efa:	201f      	movs	r0, #31
+ 8000efc:	f000 ff3b 	bl	8001d76 <HAL_NVIC_EnableIRQ>
     HAL_NVIC_SetPriority(I2C1_ER_IRQn, 0, 0);
- 8000efe:	2200      	movs	r2, #0
- 8000f00:	2100      	movs	r1, #0
- 8000f02:	2020      	movs	r0, #32
- 8000f04:	f000 ff1b 	bl	8001d3e <HAL_NVIC_SetPriority>
+ 8000f00:	2200      	movs	r2, #0
+ 8000f02:	2100      	movs	r1, #0
+ 8000f04:	2020      	movs	r0, #32
+ 8000f06:	f000 ff1a 	bl	8001d3e <HAL_NVIC_SetPriority>
     HAL_NVIC_EnableIRQ(I2C1_ER_IRQn);
- 8000f08:	2020      	movs	r0, #32
- 8000f0a:	f000 ff34 	bl	8001d76 <HAL_NVIC_EnableIRQ>
+ 8000f0a:	2020      	movs	r0, #32
+ 8000f0c:	f000 ff33 	bl	8001d76 <HAL_NVIC_EnableIRQ>
 
     /* USER CODE END I2C1_MspInit 1 */
 
   }
 
 }
- 8000f0e:	bf00      	nop
- 8000f10:	3728      	adds	r7, #40	@ 0x28
- 8000f12:	46bd      	mov	sp, r7
- 8000f14:	bd80      	pop	{r7, pc}
- 8000f16:	bf00      	nop
+ 8000f10:	bf00      	nop
+ 8000f12:	3728      	adds	r7, #40	@ 0x28
+ 8000f14:	46bd      	mov	sp, r7
+ 8000f16:	bd80      	pop	{r7, pc}
  8000f18:	40005400 	.word	0x40005400
  8000f1c:	40023800 	.word	0x40023800
  8000f20:	40020400 	.word	0x40020400
@@ -2717,7 +2716,7 @@ LoopFillZerobss:
   ldr r2, =_sbss
  8001204:	2000000c 	.word	0x2000000c
   ldr r4, =_ebss
- 8001208:	20000224 	.word	0x20000224
+ 8001208:	20000220 	.word	0x20000220
 
 0800120c <ADC_IRQHandler>:
  * @retval None       
@@ -2880,7 +2879,7 @@ __weak void HAL_IncTick(void)
  80012d0:	4770      	bx	lr
  80012d2:	bf00      	nop
  80012d4:	20000008 	.word	0x20000008
- 80012d8:	20000220 	.word	0x20000220
+ 80012d8:	2000021c 	.word	0x2000021c
 
 080012dc <HAL_GetTick>:
   * @note This function is declared as __weak to be overwritten in case of other 
@@ -2900,7 +2899,7 @@ __weak uint32_t HAL_GetTick(void)
  80012e8:	f85d 7b04 	ldr.w	r7, [sp], #4
  80012ec:	4770      	bx	lr
  80012ee:	bf00      	nop
- 80012f0:	20000220 	.word	0x20000220
+ 80012f0:	2000021c 	.word	0x2000021c
 
 080012f4 <HAL_Delay>:
   *       implementations in user file.
