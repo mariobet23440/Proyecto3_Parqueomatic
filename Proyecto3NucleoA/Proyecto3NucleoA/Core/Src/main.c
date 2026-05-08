@@ -41,6 +41,8 @@
 #define NUM_BYTES (NUM_BPP * NUM_PIXELS)	// Número total de bytes por arreglo
 
 #define WRITE_BUF_LEN (NUM_BPP * 8) 		// Buffer para escritura de LED
+
+#define THRESHOLD 99
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,6 +51,9 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
+
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim2;
@@ -66,11 +71,16 @@ UART_HandleTypeDef huart2;
 // 0x04 (0b00000100) -> Carro detectado en S3
 // 0x08 (0b00001000) -> Carro detectado en S4
 uint8_t state = 0; // Esta variable se transmite al ESP32 por el protocolo I2C.
+uint8_t i2c_busy = 0;
 
 // VARIABLES PARA NEOPIXEL
 uint8_t rgb_arr[NUM_BYTES];		// Buffer para color de LED
 uint8_t wr_buf[WRITE_BUF_LEN];	// Buffer para escritura de LED
 uint_fast8_t wr_buf_p = 0;
+
+// VARIABLES PARA ADC
+uint8_t adc_data[4];
+
 
 /* USER CODE END PV */
 
@@ -81,6 +91,7 @@ static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -109,7 +120,7 @@ void NeopixelRender() {
 	// Si hay una transferencia en curso, cancelar
 	if(wr_buf_p != 0 || hdma_tim2_ch1.State != HAL_DMA_STATE_READY) {
 		// Llenar el buffer de ceros y parar transmisión
-		for(uint8_t i = 0; i < WR_BUF_LEN; ++i) wr_buf[i] = 0;
+		for(uint8_t i = 0; i < WRITE_BUF_LEN; ++i) wr_buf[i] = 0;
 		wr_buf_p = 0;
 		HAL_TIM_PWM_Stop_DMA(&htim2, TIM_CHANNEL_1);
 		return;
@@ -143,8 +154,37 @@ void NeopixelRender() {
 	 */
 
 	// Iniciar transmisión DMA
-	HAL_TIM_PWM_Start_DMA(&htim2, TIM_CHANNEL_1, (uint32_t *)wr_buf, WR_BUF_LEN);
+	HAL_TIM_PWM_Start_DMA(&htim2, TIM_CHANNEL_1, (uint32_t *)wr_buf, WRITE_BUF_LEN);
 	wr_buf_p = 2; // Indicar que es posible meter el siguiente buffer.
+}
+
+
+// Función para enviar un número siempre con 3 caracteres (000-255)
+void UART_SendInt8_Fixed(uint8_t num) {
+    char buffer[4];
+    buffer[0] = (num / 100) + '0';       // Centenas
+    buffer[1] = ((num / 10) % 10) + '0'; // Decenas
+    buffer[2] = (num % 10) + '0';        // Unidades
+    buffer[3] = '\0';
+    HAL_UART_Transmit(&huart2, (uint8_t *)buffer, 3, 100);
+}
+
+void UART_SendString(const char *str) {
+    uint16_t len = 0;
+    while (str[len] != '\0') len++;
+    HAL_UART_Transmit(&huart2, (uint8_t *)str, len, 100);
+}
+
+// Función para enviar los 4 bits de estado como "0000"
+void UART_SendBinary4Bit(uint8_t state) {
+    char bin_str[5]; // 4 bits + terminador
+    // Revisamos cada bit (del 3 al 0)
+    bin_str[0] = (state & 0x08) ? '1' : '0'; // S4
+    bin_str[1] = (state & 0x04) ? '1' : '0'; // S3
+    bin_str[2] = (state & 0x02) ? '1' : '0'; // S2
+    bin_str[3] = (state & 0x01) ? '1' : '0'; // S1
+    bin_str[4] = '\0';
+    HAL_UART_Transmit(&huart2, (uint8_t *)bin_str, 4, 100);
 }
 
 /* USER CODE END 0 */
@@ -182,19 +222,60 @@ int main(void)
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   MX_TIM2_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_data, 4);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // Transmitir estado si se solicita
-	  HAL_I2C_Slave_Transmit(&hi2c1, &state, sizeof(state), 0XFFFF);
+	// 1. Actualizar ADC
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_data, 4);
+	HAL_Delay(5); // Tiempo para que el DMA trabaje
 
-    /* USER CODE END WHILE */
+	// 2. Lógica de umbrales para I2C y Visualización
+	state = 0;
+	if(adc_data[0] > THRESHOLD) state |= 0x01; // S1
+	if(adc_data[1] > THRESHOLD) state |= 0x02; // S2
+	if(adc_data[2] > THRESHOLD) state |= 0x04; // S3
+	if(adc_data[3] > THRESHOLD) state |= 0x08; // S4
 
+	// 3. Preparar I2C para el Maestro (Modo Esclavo IT)
+	if (i2c_busy == 0) {
+	  i2c_busy = 1;
+	  HAL_I2C_Slave_Transmit_IT(&hi2c1, &state, 1);
+	}
+
+	// 4. Transmisión de la Tabla por UART
+	UART_SendString("| CH0: ");
+	UART_SendInt8_Fixed(adc_data[0]);
+	UART_SendString(" | CH1: ");
+	UART_SendInt8_Fixed(adc_data[1]);
+	UART_SendString(" | CH2: ");
+	UART_SendInt8_Fixed(adc_data[2]);
+	UART_SendString(" | CH3: ");
+	UART_SendInt8_Fixed(adc_data[3]);
+
+	// Nueva Columna: Sensores (Binario)
+	UART_SendString(" | SENSORS: ");
+	UART_SendBinary4Bit(state);
+
+	// Columna: Estado (Hexadecimal)
+	UART_SendString(" | HEX: 0x");
+	char hex_buf[3];
+	const char *hex_map = "0123456789ABCDEF";
+	hex_buf[0] = hex_map[(state >> 4) & 0x0F];
+	hex_buf[1] = hex_map[state & 0x0F];
+	hex_buf[2] = '\0';
+	UART_SendString(hex_buf);
+
+	UART_SendString(" |\r\n");
+
+	HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+	HAL_Delay(200);
+	/* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -245,6 +326,85 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_8B;
+  hadc1.Init.ScanConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 4;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Rank = 3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_8;
+  sConfig.Rank = 4;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -381,11 +541,15 @@ static void MX_DMA_Init(void)
 
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
+  __HAL_RCC_DMA2_CLK_ENABLE();
 
   /* DMA interrupt init */
   /* DMA1_Stream5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  /* DMA2_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 
 }
 
@@ -423,12 +587,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : S1A_Pin S2A_Pin S3A_Pin S4A_Pin */
-  GPIO_InitStruct.Pin = S1A_Pin|S2A_Pin|S3A_Pin|S4A_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
@@ -439,15 +597,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-    // Actualizamos cada bit independientemente del pin que activó la interrupción
-	// ¡Estos son operadores ternarios! (condición) ? accion verdadero : accion falso
-    (HAL_GPIO_ReadPin(GPIOB, S1A_Pin) == GPIO_PIN_SET) ? (state |= (1 << 0)) : (state &= ~(1 << 0));
-    (HAL_GPIO_ReadPin(GPIOB, S2A_Pin) == GPIO_PIN_SET) ? (state |= (1 << 1)) : (state &= ~(1 << 1));
-    (HAL_GPIO_ReadPin(GPIOB, S3A_Pin) == GPIO_PIN_SET) ? (state |= (1 << 2)) : (state &= ~(1 << 2));
-    (HAL_GPIO_ReadPin(GPIOB, S4A_Pin) == GPIO_PIN_SET) ? (state |= (1 << 3)) : (state &= ~(1 << 3));
-}
 
 
 // Revisar
@@ -467,9 +616,17 @@ void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim) {
 	else if (wr_buf_p < NUM_PIXELS + 2) {
 		// Last two transfers are resets. 64 * 1.25 us = 80 us == good enough reset
 		// First half reset zero fill
-		for(uint8_t i = 0; i < WR_BUF_LEN / 2; ++i) wr_buf[i] = 0;
+		for(uint8_t i = 0; i < WRITE_BUF_LEN / 2; ++i) wr_buf[i] = 0;
 		wr_buf_p++;
 	}
+}
+
+void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {
+    i2c_busy = 0; // El dato fue enviado con éxito, estamos listos para el siguiente
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
+    i2c_busy = 0; // En caso de error (NACK), liberamos para reintentar
 }
 /* USER CODE END 4 */
 
