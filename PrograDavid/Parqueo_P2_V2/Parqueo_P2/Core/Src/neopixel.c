@@ -18,7 +18,7 @@ uint8_t LED_Mod[numPixels][4];
 // Buffer para PWM
 uint16_t pwmData[(24 * numPixels) + 50];
 
-uint8_t datasentflag = 0;
+volatile uint8_t datasentflag = 0;
 
 extern float brilloled;
 

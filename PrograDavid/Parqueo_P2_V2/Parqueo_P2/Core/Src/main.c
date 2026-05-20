@@ -144,89 +144,89 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  	  	uint8_t estado_esclavo = 0;
-	  	    uint8_t estado_anterior[8];
+	  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer_maestro, 4);
 
-	  	    // 0. Guardamos una copia del estado actual para saber si la pantalla necesita actualizarse
-	  	    for(int i = 0; i < 8; i++) {
-	  	        estado_anterior[i] = estado_parqueo[i];
-	  	    }
+      uint8_t estado_esclavo = 0;
+      uint8_t estado_anterior[8];
+      uint8_t actualizar_pantalla = 0; // Asegurar inicialización
 
-	  	    // 1. LEER SENSORES LOCALES Y ACTUALIZAR NEOPIXELS (Cajones 1 al 4)
-	  	    for (int i = 0; i < 4; i++) {
-	  	        if (adc_buffer_maestro[i] < LDR_THRESHOLD) {
-	  	            estado_parqueo[i] = 1; // Ocupado
-	  	            setPixelColor(i, 255, 0, 0); // Modificado: Rojo (Pixel, R, G, B)
-	  	        } else {
-	  	            estado_parqueo[i] = 0; // Libre
-	  	            setPixelColor(i, 0, 255, 0); // Modificado: Verde (Pixel, R, G, B)
-	  	        }
-	  	    }
+      // 0. Guardamos una copia del estado actual
+      for(int i = 0; i < 8; i++) {
+          estado_anterior[i] = estado_parqueo[i];
+      }
 
-	  	    // =================================================================
-	  	    // 1.5 TRANSMISIÓN DE LA TABLA POR UART (Depuración de LDRs)
-	  	    // =================================================================
+      // 1. LEER SENSORES LOCALES Y ACTUALIZAR NEOPIXELS (Cajones 1 al 4)
+      // NOTA: Si notas parpadeo en la pantalla, considera agregar una pequeña histéresis aquí
+      for (int i = 0; i < 4; i++) {
+          if (adc_buffer_maestro[i] < LDR_THRESHOLD) {
+              estado_parqueo[i] = 1; // Ocupado
+              setPixelColor(i, 255, 0, 0);
+          } else {
+              estado_parqueo[i] = 0; // Libre
+              setPixelColor(i, 0, 255, 0);
+          }
+      }
 
-	  	    // A. Construir el 'state' de 4 bits (Cajones 4, 3, 2, 1)
-	  	    uint8_t state = (estado_parqueo[3] << 3) | (estado_parqueo[2] << 2) | (estado_parqueo[1] << 1) | estado_parqueo[0];
+      // =================================================================
+      // 1.5 TRANSMISIÓN DE LA TABLA POR UART (¡Ahora correrá continuo!)
+      // =================================================================
+      uint8_t state = (estado_parqueo[3] << 3) | (estado_parqueo[2] << 2) | (estado_parqueo[1] << 1) | estado_parqueo[0];
+      char uart_buf[100];
+      sprintf(uart_buf, "| CH0: %04lu | CH1: %04lu | CH2: %04lu | CH3: %04lu | SENSORS: %d%d%d%d | HEX: 0x%X |\r\n",
+              adc_buffer_maestro[0], adc_buffer_maestro[1], adc_buffer_maestro[2], adc_buffer_maestro[3],
+              estado_parqueo[3], estado_parqueo[2], estado_parqueo[1], estado_parqueo[0],
+              state);
 
-	  	    // B. Preparar el buffer de texto
-	  	    char uart_buf[100];
+      // Transmisión UART con timeout corto (10ms es más que suficiente para 100 bytes a 115200bps)
+      HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), 10);
+      // =================================================================
 
-	  	    // C. Formatear la cadena completa.
-	  	    // %04lu asegura que los valores del ADC mantengan 4 dígitos para que la tabla no baile.
-	  	    sprintf(uart_buf, "| CH0: %04lu | CH1: %04lu | CH2: %04lu | CH3: %04lu | SENSORS: %d%d%d%d | HEX: 0x%X |\r\n",
-	  	            adc_buffer_maestro[0],
-	  	            adc_buffer_maestro[1],
-	  	            adc_buffer_maestro[2],
-	  	            adc_buffer_maestro[3],
-	  	            estado_parqueo[3], estado_parqueo[2], estado_parqueo[1], estado_parqueo[0], // Binario manual
-	  	            state);
+      //pixelShow(); BLOQUEANTEEEE!!!!!
 
-	  	    // D. Transmitir por el puerto serial (USART2)
-	  	    HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), 100);
+      // 2. SOLICITAR DATOS I2C A LA NUCLEO 2 (Dirección 36)
+      // Reducimos el timeout a 10ms para que no congele el loop principal
+      if (HAL_I2C_Master_Receive(&hi2c1, 36, &estado_esclavo, 1, 10) == HAL_OK) {
 
-	  	    // =================================================================
+          // El esclavo respondió con éxito, procesamos sus datos
+          estado_parqueo[4] = (estado_esclavo & 0x01) ? 1 : 0;
+          estado_parqueo[5] = (estado_esclavo & 0x02) ? 1 : 0;
+          estado_parqueo[6] = (estado_esclavo & 0x04) ? 1 : 0;
+          estado_parqueo[7] = (estado_esclavo & 0x08) ? 1 : 0;
 
-	  	    // Aplicar colores físicamente a los LEDs de la Nucleo Maestro
-	  	    pixelShow(); // Modificado
+          // 3. CALCULAR EL TOTAL DE ESPACIOS LIBRES GLOBALES
+          uint8_t libres_totales = 0;
+          for (int i = 0; i < 8; i++) {
+              if (estado_parqueo[i] == 0) {
+                  libres_totales++;
+              }
+          }
 
-	  	    // 2. SOLICITAR DATOS I2C A LA NUCLEO 2 (Dirección 36)
-	  	    if (HAL_I2C_Master_Receive(&hi2c1, 36, &estado_esclavo, 1, 100) == HAL_OK) {
-	  	        // Desempaquetamos los 4 bits recibidos en las posiciones 4 al 7 del arreglo
-	  	        estado_parqueo[4] = (estado_esclavo & 0x01) ? 1 : 0;
-	  	        estado_parqueo[5] = (estado_esclavo & 0x02) ? 1 : 0;
-	  	        estado_parqueo[6] = (estado_esclavo & 0x04) ? 1 : 0;
-	  	        estado_parqueo[7] = (estado_esclavo & 0x08) ? 1 : 0;
-	  	    }
+          // 4. ENVIAR EL TOTAL AL ESCLAVO (Solo se ejecuta si el esclavo está vivo)
+          HAL_I2C_Master_Transmit(&hi2c1, 36, &libres_totales, 1, 10);
+      }
+      else {
+          // CORRECCIÓN CRÍTICA: Si el I2C falla, reiniciamos el periférico
+          // para evitar que el HAL se quede trabado en el estado BUSY para siempre.
+          __HAL_I2C_DISABLE(&hi2c1);
+          __HAL_I2C_ENABLE(&hi2c1);
+      }
 
-	  	    // 3. CALCULAR EL TOTAL DE ESPACIOS LIBRES GLOBALES (De los 8 cajones)
-	  	    uint8_t libres_totales = 0;
-	  	    for (int i = 0; i < 8; i++) {
-	  	        if (estado_parqueo[i] == 0) {
-	  	            libres_totales++;
-	  	        }
-	  	    }
+      // 5. EVALUAR SI HUBO CAMBIOS PARA LA INTERFAZ GRÁFICA
+      for(int i = 0; i < 8; i++) {
+          if(estado_anterior[i] != estado_parqueo[i]) {
+              actualizar_pantalla = 1;
+              break;
+          }
+      }
 
-	  	    // 4. ENVIAR EL TOTAL AL ESCLAVO
-	  	    HAL_I2C_Master_Transmit(&hi2c1, 36, &libres_totales, 1, 100);
+      if (actualizar_pantalla) {
+          GUI_Actualizar(estado_parqueo);
+          actualizar_pantalla = 0;
+      }
 
-	  	    // 5. EVALUAR SI HUBO CAMBIOS PARA LA INTERFAZ GRÁFICA
-	  	    for(int i = 0; i < 8; i++) {
-	  	        if(estado_anterior[i] != estado_parqueo[i]) {
-	  	            actualizar_pantalla = 1;
-	  	            break;
-	  	        }
-	  	    }
+      // 7. RITMO DEL SISTEMA
+      HAL_Delay(50);
 
-	  	    if (actualizar_pantalla) {
-	  	        GUI_Actualizar(estado_parqueo);
-	  	        actualizar_pantalla = 0;
-	  	    }
-
-
-	  	    // 7. RITMO DEL SISTEMA
-	  	    HAL_Delay(50);
 
     /* USER CODE END WHILE */
 
