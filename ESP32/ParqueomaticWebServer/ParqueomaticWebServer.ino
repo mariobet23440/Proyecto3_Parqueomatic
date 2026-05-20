@@ -18,11 +18,11 @@
 // Variables globales
 //************************************************************************************************
 // SSID & Password
-//const char* ssid = "MarioGalaxyA22";  // Enter your SSID here
-//const char* password = "contraseña";  //Enter your Password here
+const char* ssid = "MarioGalaxyA22";  // Enter your SSID here
+const char* password = "contraseña";  //Enter your Password here
 
-const char* ssid = "Galaxy S21 FE 5G 4d0c";  // Enter your SSID here
-const char* password = "shxl0927";  //Enter your Password here
+//const char* ssid = "Galaxy S21 FE 5G 4d0c";  // Enter your SSID here
+//const char* password = "shxl0927";  //Enter your Password here
 
 // Pines de salida
 const uint8_t SENSOR_PINS[4] = {32, 33, 25, 26};
@@ -239,6 +239,17 @@ String SendHTML(uint8_t led1stat) {
   ptr += "</div>\n";
   ptr += "</div>\n";
   ptr += "<script src=https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js></script>\n";
+  
+  // =========================================================================
+  // SCRIPT DE AUTO-REFRESCO CADA 10 SEGUNDOS (10000 ms)
+  // =========================================================================
+  ptr += "<script>\n";
+  ptr += "  setInterval(function() {\n";
+  ptr += "    window.location.reload();\n";
+  ptr += "  }, 10000);\n";
+  ptr += "</script>\n";
+  // =========================================================================
+
   ptr += "</body>\n";
   ptr += "</html>";
   return ptr;

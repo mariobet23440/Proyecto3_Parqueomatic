@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "SevenSegmentLib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,17 +32,19 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 // Valores lógicos para PWM
-#define PWM_HI (31)
-#define PWM_LO (16)
+#define TIM_ARR_VAL 100 // Tu período total es 100
 
-// Parámetros de Neopixels
-#define NUM_BPP (4)							// Número de bytes por pixel
-#define NUM_PIXELS (8)						// Número de Neopixels
-#define NUM_BYTES (NUM_BPP * NUM_PIXELS)	// Número total de bytes por arreglo
+// Valores calibrados (Prueba con estos)
+#define PWM_HI (68)  // ~0.85 uS en alto (Aumenta el margen del 1 lógico)
+#define PWM_LO (30)  // ~0.37 uS en alto (Asegura el 0 lógico)
 
-#define WRITE_BUF_LEN (NUM_BPP * 8) 		// Buffer para escritura de LED
+// Umbral de sensores
+#define THRESHOLD 80
 
-#define THRESHOLD 99
+// Número de Neopixeles por tira
+#define MAX_LED 4
+
+D7S mi_display;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -74,9 +76,10 @@ uint8_t state = 0; // Esta variable se transmite al ESP32 por el protocolo I2C.
 uint8_t i2c_busy = 0;
 
 // VARIABLES PARA NEOPIXEL
-uint8_t rgb_arr[NUM_BYTES];		// Buffer para color de LED
-uint8_t wr_buf[WRITE_BUF_LEN];	// Buffer para escritura de LED
-uint_fast8_t wr_buf_p = 0;
+TIM_HandleTypeDef *pwm_timer;
+uint32_t pwm_channel;
+uint8_t LED_Data[MAX_LED][3];
+uint32_t pwmData[(24 * MAX_LED) + 300];
 
 // VARIABLES PARA ADC
 uint8_t adc_data[4];
@@ -99,63 +102,42 @@ static void MX_ADC1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// Establecer el color en un neopixel
-void NeopixelSetRGBW(uint8_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
-	// Cada neopixel tiene 4 bytes asociados
-	// La dirección del neopixel i en el arreglo es 4 * i
-	rgb_arr[4 * index    ] = g;	// Verde
-	rgb_arr[4 * index + 1] = r;	// Rojo
-	rgb_arr[4 * index + 2] = b;	// Azul
-	rgb_arr[4 * index + 3] = w;	// Blanco
+void NeoPixel_Init(TIM_HandleTypeDef *htim, uint32_t channel) {
+    pwm_timer = htim;
+    pwm_channel = channel;
 }
 
-// Establecer un color en todos los neopixeles
-void NeopixelSetAllRGBW(uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
-	// Iterar sobre todos los neopixels, poniendo el mismo color en todos
-	for(uint_fast8_t i = 0; i < NUM_PIXELS; ++i) NeopixelSetRGBW(i, r, g, b, w);
+void NeoPixel_SetColor(uint8_t led_index, uint8_t r, uint8_t g, uint8_t b) {
+    if(led_index < MAX_LED) {
+        LED_Data[led_index][0] = g; // Orden GRB de los WS2812B
+        LED_Data[led_index][1] = r;
+        LED_Data[led_index][2] = b;
+    }
 }
 
-// Refrescar colores en neopixels
-void NeopixelRender() {
-	// Si hay una transferencia en curso, cancelar
-	if(wr_buf_p != 0 || hdma_tim2_ch1.State != HAL_DMA_STATE_READY) {
-		// Llenar el buffer de ceros y parar transmisión
-		for(uint8_t i = 0; i < WRITE_BUF_LEN; ++i) wr_buf[i] = 0;
-		wr_buf_p = 0;
-		HAL_TIM_PWM_Stop_DMA(&htim2, TIM_CHANNEL_1);
-		return;
-	}
+void NeoPixel_Show(void) {
+    uint32_t indx = 0;
+    uint32_t color;
 
-	// Llenar el buffer de escritura con datos para el primer y segundo neopixel en el buffer
-	for(uint_fast8_t i = 0; i < 8; ++i) {
-		wr_buf[i     ] = PWM_LO << (((rgb_arr[0] << i) & 0x80) > 0); // Neopixel 1 - Byte R
-		wr_buf[i +  8] = PWM_LO << (((rgb_arr[1] << i) & 0x80) > 0); // Neopixel 1 - Byte G
-		wr_buf[i + 16] = PWM_LO << (((rgb_arr[2] << i) & 0x80) > 0); // Neopixel 1 - Byte B
-		wr_buf[i + 24] = PWM_LO << (((rgb_arr[3] << i) & 0x80) > 0); // Neopixel 1 - Byte W
-		wr_buf[i + 32] = PWM_LO << (((rgb_arr[4] << i) & 0x80) > 0); // Neopixel 2 - Byte R
-		wr_buf[i + 40] = PWM_LO << (((rgb_arr[5] << i) & 0x80) > 0); // Neopixel 2 - Byte G
-		wr_buf[i + 48] = PWM_LO << (((rgb_arr[6] << i) & 0x80) > 0); // Neopixel 2 - Byte B
-		wr_buf[i + 56] = PWM_LO << (((rgb_arr[7] << i) & 0x80) > 0); // Neopixel 2 - Byte W
-	}
+    for (int i = 0; i < MAX_LED; i++) {
+        color = ((LED_Data[i][0] << 16) | (LED_Data[i][1] << 8) | (LED_Data[i][2]));
 
-	/*
-	 * El ciclo for de arriba combina shifts a nivel de bits y operaciones lógicas,
-	 * para [llenar el buffer de escritura] con valores lógicos PWM_LO o PWM_HI. Dado que
-	 * la transmisión es bit a bit, el buffer de escritura tiene espacio para 64 bits (8 bytes).
-	 * Cada línea de código en el FOR corresponde a [un bit] de un byte R,G,B o W de
-	 * dos neopixels y, básicamente, 8en cada una revisa si el bit i es 1 o 0.
-	 *
-	 * + Si el bit en el índice i es cero, el término ((rgb_arr[0] << i) & 0x80) es 0.
-	 *   Por lo tanto, wr_buf[i] es igual a PWM_LO << 0. Un shift por cero es una multiplicación
-	 *   por uno, por lo que wr_buf[i] tiene PWM_LO (15).
-	 *
-	 * + Si el bit en i es 1, el término ((rgb_arr[0] << i) & 0x80) es 1. Un shift por uno es
-	 *   una multiplicación por 2, por lo que wr_buf[i] tiene 32, aproximadamente PWM_HI.
-	 */
+        for (int j = 23; j >= 0; j--) {
+            if (color & (1 << j)) {
+                pwmData[indx] = PWM_HI;  // ~64% alto (Lógico 1)
+            } else {
+                pwmData[indx] = PWM_LO;  // ~32% alto (Lógico 0)
+            }
+            indx++;
+        }
+    }
 
-	// Iniciar transmisión DMA
-	HAL_TIM_PWM_Start_DMA(&htim2, TIM_CHANNEL_1, (uint32_t *)wr_buf, WRITE_BUF_LEN);
-	wr_buf_p = 2; // Indicar que es posible meter el siguiente buffer.
+    for (int i = 0; i < 300; i++) {
+        pwmData[indx] = 0; // Señal de RESET
+        indx++;
+    }
+
+    HAL_TIM_PWM_Start_DMA(pwm_timer, pwm_channel, (uint32_t *)pwmData, indx);
 }
 
 
@@ -186,6 +168,7 @@ void UART_SendBinary4Bit(uint8_t state) {
     bin_str[4] = '\0';
     HAL_UART_Transmit(&huart2, (uint8_t *)bin_str, 4, 100);
 }
+
 
 /* USER CODE END 0 */
 
@@ -225,6 +208,25 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_data, 4);
+
+  // Inicializa los NeoPixels usando el Timer 2, Canal 1
+  NeoPixel_Init(&htim2, TIM_CHANNEL_1);
+
+  // =================================================================
+    // MAPEO CALIBRADO: Secuencia Física (e - g - a - d - f - c - b)
+    // =================================================================
+    mi_display.port_a = GPIO_DSS_4_GPIO_Port; mi_display.pin_a = GPIO_DSS_4_Pin; // Paso 3 fue A
+    mi_display.port_b = GPIO_DSS_2_GPIO_Port; mi_display.pin_b = GPIO_DSS_2_Pin; // Paso 7 fue B
+    mi_display.port_c = GPIO_DSS_6_GPIO_Port; mi_display.pin_c = GPIO_DSS_6_Pin; // Paso 6 fue C
+    mi_display.port_d = GPIO_DSS_5_GPIO_Port; mi_display.pin_d = GPIO_DSS_5_Pin; // Paso 4 fue D
+    mi_display.port_e = GPIO_DSS_7_GPIO_Port; mi_display.pin_e = GPIO_DSS_7_Pin; // Paso 1 fue E
+    mi_display.port_f = GPIO_DSS_3_GPIO_Port; mi_display.pin_f = GPIO_DSS_3_Pin; // Paso 5 fue F
+    mi_display.port_g = GPIO_DSS_1_GPIO_Port; mi_display.pin_g = GPIO_DSS_1_Pin; // Paso 2 fue G
+    // =================================================================
+  //Display_TestSequence(&mi_display);
+
+  // Apagar el display al inicio por precaución
+  DisplayOff(&mi_display);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -241,6 +243,31 @@ int main(void)
 	if(adc_data[1] > THRESHOLD) state |= 0x02; // S2
 	if(adc_data[2] > THRESHOLD) state |= 0x04; // S3
 	if(adc_data[3] > THRESHOLD) state |= 0x08; // S4
+
+	// === NUEVA LÓGICA PARA ACTUALIZAR LOS NEOPIXELS ===
+
+	uint8_t espacios_ocupados = 0; // Variable para contar los carros
+
+	for (int i = 0; i < MAX_LED; i++) {
+		// Evaluamos si el bit 'i' de 'state' está encendido (1 = Ocupado)
+		if (state & (1 << i)) {
+			// Parqueo Ocupado -> Color Rojo (R=255, G=0, B=0)
+			NeoPixel_SetColor(i, 255, 0, 0);
+		} else {
+			// Parqueo Libre -> Color Verde (R=0, G=255, B=0)
+			espacios_ocupados += 1;
+			NeoPixel_SetColor(i, 0, 255, 0);
+		}
+	}
+
+	// Detener el PWM antes de actualizar evita que el DMA lea datos corruptos
+	HAL_TIM_PWM_Stop_DMA(pwm_timer, pwm_channel);
+	NeoPixel_Show();
+
+	// === LÓGICA DEL DISPLAY 7 SEGMENTOS ===
+	uint8_t parqueos_disponibles = MAX_LED - espacios_ocupados;
+	DisplayNumber(&mi_display, parqueos_disponibles);
+	// ==================================================
 
 	// 3. Preparar I2C para el Maestro (Modo Esclavo IT)
 	if (i2c_busy == 0) {
@@ -273,7 +300,6 @@ int main(void)
 
 	UART_SendString(" |\r\n");
 
-	HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 	HAL_Delay(200);
     /* USER CODE END WHILE */
 
@@ -464,7 +490,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 50-1;
+  htim2.Init.Period = 100-1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -541,8 +567,8 @@ static void MX_DMA_Init(void)
 {
 
   /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
   __HAL_RCC_DMA2_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
   /* DMA1_Stream5_IRQn interrupt configuration */
@@ -573,7 +599,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_DSS_5_Pin|GPIO_DSS_2_Pin|GPIO_DSS_4_Pin|GPIO_DSS_3_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_DSS_6_Pin|GPIO_DSS_7_Pin|GPIO_DSS_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -581,12 +610,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pins : GPIO_DSS_5_Pin GPIO_DSS_2_Pin GPIO_DSS_4_Pin GPIO_DSS_3_Pin */
+  GPIO_InitStruct.Pin = GPIO_DSS_5_Pin|GPIO_DSS_2_Pin|GPIO_DSS_4_Pin|GPIO_DSS_3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : GPIO_DSS_6_Pin GPIO_DSS_7_Pin GPIO_DSS_1_Pin */
+  GPIO_InitStruct.Pin = GPIO_DSS_6_Pin|GPIO_DSS_7_Pin|GPIO_DSS_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
@@ -600,27 +636,6 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 
-// Revisar
-void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim) {
-	// DMA buffer set from LED(wr_buf_p) to LED(wr_buf_p + 1)
-	if(wr_buf_p < NUM_PIXELS) {
-		// We're in. Fill the even buffer
-		for(uint_fast8_t i = 0; i < 8; ++i) {
-			wr_buf[i     ] = PWM_LO << (((rgb_arr[4 * wr_buf_p    ] << i) & 0x80) > 0);
-			wr_buf[i +  8] = PWM_LO << (((rgb_arr[4 * wr_buf_p + 1] << i) & 0x80) > 0);
-			wr_buf[i + 16] = PWM_LO << (((rgb_arr[4 * wr_buf_p + 2] << i) & 0x80) > 0);
-			wr_buf[i + 24] = PWM_LO << (((rgb_arr[4 * wr_buf_p + 3] << i) & 0x80) > 0);
-		}
-		wr_buf_p++;
-	}
-
-	else if (wr_buf_p < NUM_PIXELS + 2) {
-		// Last two transfers are resets. 64 * 1.25 us = 80 us == good enough reset
-		// First half reset zero fill
-		for(uint8_t i = 0; i < WRITE_BUF_LEN / 2; ++i) wr_buf[i] = 0;
-		wr_buf_p++;
-	}
-}
 
 void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {
     i2c_busy = 0; // El dato fue enviado con éxito, estamos listos para el siguiente

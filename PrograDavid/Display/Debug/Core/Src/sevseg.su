@@ -1,0 +1,2 @@
+../Core/Src/sevseg.c:30:6:SevSeg_UpdateValue	16	static
+../Core/Src/sevseg.c:34:6:SevSeg_Multiplex_ISR	16	static

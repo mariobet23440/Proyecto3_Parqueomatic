@@ -1,0 +1,4 @@
+../Core/Src/SevenSegmentLib.c:36:20:setSeg	1
+../Core/Src/SevenSegmentLib.c:43:6:DisplayNumber	1
+../Core/Src/SevenSegmentLib.c:56:6:DisplayOff	1
+../Core/Src/SevenSegmentLib.c:73:6:Display_TestSequence	1
