@@ -251,12 +251,12 @@ int main(void)
 	for (int i = 0; i < MAX_LED; i++) {
 		// Evaluamos si el bit 'i' de 'state' está encendido (1 = Ocupado)
 		if (state & (1 << i)) {
-			// Parqueo Ocupado -> Color Rojo (R=255, G=0, B=0)
-			NeoPixel_SetColor(i, 255, 0, 0);
-		} else {
-			// Parqueo Libre -> Color Verde (R=0, G=255, B=0)
-			espacios_ocupados += 1;
+			// Parqueo Libre -> Color Rojo (R=255, G=0, B=0)
 			NeoPixel_SetColor(i, 0, 255, 0);
+		} else {
+			// Parqueo Ocupado -> Color Rojo (R=0, G=255, B=0)
+			espacios_ocupados += 1;
+			NeoPixel_SetColor(i, 255, 0, 0);
 		}
 	}
 

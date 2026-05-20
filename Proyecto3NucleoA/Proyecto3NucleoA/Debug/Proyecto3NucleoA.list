@@ -1158,27 +1158,27 @@ int main(void)
  8000a62:	f003 0301 	and.w	r3, r3, #1
  8000a66:	2b00      	cmp	r3, #0
  8000a68:	d007      	beq.n	8000a7a <main+0x136>
-			// Parqueo Ocupado -> Color Rojo (R=255, G=0, B=0)
-			NeoPixel_SetColor(i, 255, 0, 0);
+			// Parqueo Libre -> Color Rojo (R=255, G=0, B=0)
+			NeoPixel_SetColor(i, 0, 255, 0);
  8000a6a:	693b      	ldr	r3, [r7, #16]
  8000a6c:	b2d8      	uxtb	r0, r3
  8000a6e:	2300      	movs	r3, #0
- 8000a70:	2200      	movs	r2, #0
- 8000a72:	21ff      	movs	r1, #255	@ 0xff
+ 8000a70:	22ff      	movs	r2, #255	@ 0xff
+ 8000a72:	2100      	movs	r1, #0
  8000a74:	f7ff fe2a 	bl	80006cc <NeoPixel_SetColor>
  8000a78:	e009      	b.n	8000a8e <main+0x14a>
 		} else {
-			// Parqueo Libre -> Color Verde (R=0, G=255, B=0)
+			// Parqueo Ocupado -> Color Rojo (R=0, G=255, B=0)
 			espacios_ocupados += 1;
  8000a7a:	7dfb      	ldrb	r3, [r7, #23]
  8000a7c:	3301      	adds	r3, #1
  8000a7e:	75fb      	strb	r3, [r7, #23]
-			NeoPixel_SetColor(i, 0, 255, 0);
+			NeoPixel_SetColor(i, 255, 0, 0);
  8000a80:	693b      	ldr	r3, [r7, #16]
  8000a82:	b2d8      	uxtb	r0, r3
  8000a84:	2300      	movs	r3, #0
- 8000a86:	22ff      	movs	r2, #255	@ 0xff
- 8000a88:	2100      	movs	r1, #0
+ 8000a86:	2200      	movs	r2, #0
+ 8000a88:	21ff      	movs	r1, #255	@ 0xff
  8000a8a:	f7ff fe1f 	bl	80006cc <NeoPixel_SetColor>
 	for (int i = 0; i < MAX_LED; i++) {
  8000a8e:	693b      	ldr	r3, [r7, #16]
