@@ -12,7 +12,6 @@
 #include <WebServer.h>
 #include <Wire.h> // Librería para I2C
 
-#define SLAVE_ADDR 0x00  // Dirección I2C que configuramos en la Nucleo
 
 //************************************************************************************************
 // Variables globales
@@ -25,8 +24,12 @@ const char* password = "contraseña";  //Enter your Password here
 //const char* password = "shxl0927";  //Enter your Password here
 
 // Pines de salida
-const uint8_t SENSOR_PINS[4] = {32, 33, 25, 26};
-const uint8_t HEARTBEAT_LED = 4; // LED que "no se está usando" para el toggle de I2C
+#define NUCLEO_1_ADDR 0x10  // Dirección de la primera Nucleo (Parqueos 1 al 4)
+#define NUCLEO_2_ADDR 0x11  // Dirección de la segunda Nucleo (Parqueos 5 al 8)
+
+// Pines de salida para feedback local en la ESP32 (8 pines en total ahora)
+const uint8_t SENSOR_PINS[8] = {32, 33, 25, 26, 27, 14, 12, 13}; 
+const uint8_t HEARTBEAT_LED = 4; 
 bool heartbeatStatus = LOW;
 
 WebServer server(80);  // Object of WebServer(HTTP port, 80 is defult)
@@ -35,18 +38,18 @@ WebServer server(80);  // Object of WebServer(HTTP port, 80 is defult)
 uint8_t LED1pin = 2;
 bool LED1status = LOW;
 
-// Arreglo para parqueo
+// Arreglo para parqueo (8 espacios)
 uint8_t availability[8] = {0,0,0,0,0,0,0,0};
-uint8_t last_update_times[8] = {0,0,0,0,0,0,0,0};
 
 // Definiciones internas
-#define LEAVE_PARKING_SPOT  1  // Un parqueo libre es 1
-#define ENTER_PARKING_SPOT  0  // Un parqueo ocupado es 0
 #define PARKING_SPOT_FREE       1
 #define PARKING_SPOT_OCCUPIED   0
+#define LEAVE_PARKING_SPOT  1  // Un parqueo libre es 1
+#define ENTER_PARKING_SPOT  0  // Un parqueo ocupado es 0
 
-// Variables de estado
-uint8_t i2c_data = 0; // Aquí guardaremos el byte de la Nucleo
+// Variables de estado de datos de las Nucleo
+uint8_t i2c_data_n1 = 0; 
+uint8_t i2c_data_n2 = 0;
 
 //************************************************************************************************
 // Configuración
@@ -56,12 +59,12 @@ void setup() {
   Serial.println("Intentando conectarse ");
   Serial.println(ssid);
 
-  // Iniciar I2C (SDA = 21, SCL = 22 por defecto en ESP32)
+  // Iniciar I2C (SDA = 21, SCL = 22)
   Wire.begin(); 
   
-  // Configurar pines de salida
+  // Configurar los 8 pines de salida para los sensores
   pinMode(LED1pin, OUTPUT);
-  for(int i=0; i<4; i++) {
+  for(int i = 0; i < 8; i++) {
     pinMode(SENSOR_PINS[i], OUTPUT);
   }
 
@@ -100,10 +103,10 @@ void setup() {
 void loop() {
   server.handleClient();
   
-  // 1. Solicitar datos a la Nucleo cada 200ms aproximadamente
+  // 1. Solicitar datos a las Nucleos cada 200ms aproximadamente
   static unsigned long lastRequest = 0;
   if (millis() - lastRequest > 200) {
-    readFromNucleo();
+    readFromBothNucleos();
     lastRequest = millis();
   }
 
@@ -114,33 +117,49 @@ void loop() {
 //************************************************************************************************
 // Función I2C Maestro con Detección de Esclavo y Toggle
 //************************************************************************************************
-void readFromNucleo() {
-  // Wire.requestFrom devuelve el número de bytes recibidos
-  uint8_t bytesReceived = Wire.requestFrom(SLAVE_ADDR, 1);
-  
-  if (bytesReceived > 0) {
-    // --- CASO: EL ESCLAVO RESPONDE ---
-    i2c_data = Wire.read(); 
-    
-    // 1. Feedback Serial
-    //Serial.printf("[I2C] Nucleo OK. Data: 0x%02X\n", i2c_data);
-    
-    // 2. Toggle del LED "no usado" (Heartbeat)
-    heartbeatStatus = !heartbeatStatus;
-    //digitalWrite(HEARTBEAT_LED, heartbeatStatus);
+void readFromBothNucleos() {
+  bool anyResponse = false;
 
-    // 3. Actualizar lógica de sensores
+  // ----------------------------------------
+  // LECTURA DE NUCLEO 1 (0x10)
+  // ----------------------------------------
+  uint8_t bytesN1 = Wire.requestFrom(NUCLEO_1_ADDR, 1);
+  if (bytesN1 > 0) {
+    i2c_data_n1 = Wire.read(); 
+    anyResponse = true;
+    
     for (int i = 0; i < 4; i++) {
-      bool sensorActive = (i2c_data >> i) & 0x01;
+      bool sensorActive = (i2c_data_n1 >> i) & 0x01;
       digitalWrite(SENSOR_PINS[i], sensorActive ? HIGH : LOW);
       availability[i] = sensorActive ? PARKING_SPOT_OCCUPIED : PARKING_SPOT_FREE;
     }
-  } 
-  else {
-    // --- CASO: EL ESCLAVO NO RESPONDE (NACK / Desconectado) ---
-    //Serial.println("[I2C ERROR] Nucleo no responde (NACK)");
-    
-    // Opcional: Apagar el LED de heartbeat si no hay conexión
+  } else {
+    // ALERTA: Falla en la Nucleo 1
+    Serial.println("[I2C WARNING] Falla de comunicación con Nucleo 1 (0x10) - ¿Cable desconectado?");
+  }
+
+  // ----------------------------------------
+  // LECTURA DE NUCLEO 2 (0x11)
+  // ----------------------------------------
+  uint8_t bytesN2 = Wire.requestFrom(NUCLEO_2_ADDR, 1);
+  if (bytesN2 > 0) {
+    i2c_data_n2 = Wire.read(); 
+    anyResponse = true;
+
+    for (int i = 0; i < 4; i++) {
+      bool sensorActive = (i2c_data_n2 >> i) & 0x01;
+      digitalWrite(SENSOR_PINS[i + 4], sensorActive ? HIGH : LOW); 
+      availability[i + 4] = sensorActive ? PARKING_SPOT_OCCUPIED : PARKING_SPOT_FREE;
+    }
+  } else {
+    // ALERTA: Falla en la Nucleo 2
+    Serial.println("[I2C WARNING] Falla de comunicación con Nucleo 2 (0x11) - ¿Cable desconectado?");
+  }
+
+  // Control del Heartbeat
+  if (anyResponse) {
+    heartbeatStatus = !heartbeatStatus;
+  } else {
     digitalWrite(HEARTBEAT_LED, LOW);
   }
 }
