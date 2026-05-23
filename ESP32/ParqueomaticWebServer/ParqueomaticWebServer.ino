@@ -104,8 +104,9 @@ void loop() {
   server.handleClient();
   
   // 1. Solicitar datos a las Nucleos cada 200ms aproximadamente
+  // En el loop() de la ESP32 cambia a 1500:
   static unsigned long lastRequest = 0;
-  if (millis() - lastRequest > 200) {
+  if (millis() - lastRequest > 1500) {  // <-- 1.5 segundos es ideal y seguro
     readFromBothNucleos();
     lastRequest = millis();
   }
@@ -141,6 +142,7 @@ void readFromBothNucleos() {
   // ----------------------------------------
   // LECTURA DE NUCLEO 2 (0x11)
   // ----------------------------------------
+  /*
   uint8_t bytesN2 = Wire.requestFrom(NUCLEO_2_ADDR, 1);
   if (bytesN2 > 0) {
     i2c_data_n2 = Wire.read(); 
@@ -155,6 +157,7 @@ void readFromBothNucleos() {
     // ALERTA: Falla en la Nucleo 2
     Serial.println("[I2C WARNING] Falla de comunicación con Nucleo 2 (0x11) - ¿Cable desconectado?");
   }
+  */
 
   // Control del Heartbeat
   if (anyResponse) {

@@ -227,6 +227,8 @@ int main(void)
 
   // Apagar el display al inicio por precaución
   DisplayOff(&mi_display);
+
+  HAL_I2C_EnableListen_IT(&hi2c1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -270,10 +272,20 @@ int main(void)
 	// ==================================================
 
 	// 3. Preparar I2C para el Maestro (Modo Esclavo IT)
-	if (i2c_busy == 0) {
-	  i2c_busy = 1;
-	  HAL_I2C_Slave_Transmit_IT(&hi2c1, &state, 1);
-	}
+//	static uint32_t last_i2c_attempt = 0;
+//
+//	if (i2c_busy == 1) {
+//	    if ((HAL_GetTick() - last_i2c_attempt) > 1000) { // Si pasan más de 1 segundo
+//	        // ¡BUS BLOQUEADO! Resetear
+//	        HAL_I2C_Abort_IT(&hi2c1);
+//	        i2c_busy = 0;
+//	    }
+//	} else {
+//	    // Si no está ocupado, intentamos transmitir
+//	    i2c_busy = 1;
+//	    last_i2c_attempt = HAL_GetTick();
+//	    HAL_I2C_Slave_Transmit_IT(&hi2c1, &state, 1);
+//	}
 
 	// 4. Transmisión de la Tabla por UART
 	UART_SendString("| CH0: ");
@@ -452,11 +464,11 @@ static void MX_I2C1_Init(void)
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 100000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.OwnAddress1 = 64;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_ENABLE;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
   if (HAL_I2C_Init(&hi2c1) != HAL_OK)
   {
@@ -634,15 +646,53 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-
-
-void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {
-    i2c_busy = 0; // El dato fue enviado con éxito, estamos listos para el siguiente
+// 1. Este Callback se activa cuando el ESP32 (o el escáner) hace Match con la dirección de la STM32
+void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection, uint16_t AddrMatchCode)
+{
+    if (hi2c->Instance == I2C1)
+    {
+        // Si el Maestro quiere LEER (el escáner o el ESP32 pidiendo datos)
+        if (TransferDirection == I2C_DIRECTION_TRANSMIT)
+        {
+            // Le respondemos enviando de forma secuencial nuestra variable 'state'
+            HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, &state, 1, I2C_LAST_FRAME);
+        }
+        else
+        {
+            // Si el Maestro quisiera ESCRIBIRLE a la STM32 (no es tu caso actual, pero se deja listo)
+            // Aquí se usaría HAL_I2C_Slave_Sequential_Receive_IT
+        }
+    }
 }
 
+// 2. Este Callback se activa cuando la transmisión de datos hacia el maestro termina con éxito
+void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c) {
+    // Transmisión completada con éxito
+}
+
+// 3. ¡EL MÁS IMPORTANTE! Se activa cuando el maestro manda un STOP y termina la comunicación completa
+void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c) {
+    if (hi2c->Instance == I2C1) {
+        // Volvemos a activar la escucha para la siguiente petición o el siguiente escaneo
+        HAL_I2C_EnableListen_IT(hi2c);
+    }
+}
+
+// 4. Este Callback atrapa los errores (como el NACK que provoca el escáner al no leer datos)
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
-    i2c_busy = 0; // En caso de error (NACK), liberamos para reintentar
+    if (hi2c->Instance == I2C1) {
+        // Si el error fue simplemente un NACK (Acknowledge Failure), es normal con los escáneres
+        if (HAL_I2C_GetError(hi2c) == HAL_I2C_ERROR_AF) {
+            // Manejo silencioso del NACK
+        } else {
+            // Si es un error grave del bus, reiniciamos el periférico por seguridad
+            HAL_I2C_DeInit(hi2c);
+            HAL_I2C_Init(hi2c);
+        }
+
+        // Sin importar el error, volvemos a levantar las orejas del I2C para escuchar
+        HAL_I2C_EnableListen_IT(hi2c);
+    }
 }
 /* USER CODE END 4 */
 
