@@ -1,3 +1,0 @@
-../Core/Src/neopixel.c:20:6:NeoPixel_Init	1
-../Core/Src/neopixel.c:25:6:NeoPixel_SetColor	2
-../Core/Src/neopixel.c:34:6:NeoPixel_Show	5

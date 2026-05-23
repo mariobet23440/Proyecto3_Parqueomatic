@@ -1,4 +1,0 @@
-../Core/Src/parqueo_gui.c:29:6:RedibujarFondo	32	static
-../Core/Src/parqueo_gui.c:46:6:GUI_DibujarNumeroGigante	48	static
-../Core/Src/parqueo_gui.c:59:6:GUI_Inicializar	16	static
-../Core/Src/parqueo_gui.c:72:6:GUI_Actualizar	48	static
